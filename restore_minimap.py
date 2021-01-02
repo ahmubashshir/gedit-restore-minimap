@@ -18,6 +18,8 @@ try:
         '/org/gnome/gedit/plugins/restore_minimap/')
 except:
     settings = None
+    print('Init Failed')
+
 
 class RestoreMinimapPluginPreferences(GObject.Object, Gedit.WindowActivatable, PeasGtk.Configurable):
 
@@ -30,7 +32,8 @@ class RestoreMinimapPluginPreferences(GObject.Object, Gedit.WindowActivatable, P
         if not settings:
             return Gtk.Label(label='Error: could not load settings schema')
 
-        check = Gtk.CheckButton.new_with_label('Display minimap on the left side')
+        check = Gtk.CheckButton.new_with_label(
+            'Display minimap on the left side')
         check2 = Gtk.CheckButton.new_with_label('Show separator')
         flag = Gio.SettingsBindFlags.DEFAULT
         settings.bind('display-on-left', check, 'active', flag)
@@ -41,39 +44,62 @@ class RestoreMinimapPluginPreferences(GObject.Object, Gedit.WindowActivatable, P
         box.pack_start(check2, False, True, 0)
         return box
 
-class RestoreMinimapPlugin(GObject.Object, Gedit.ViewActivatable):
 
-    view = GObject.property(type=Gedit.View)
-
+class Bin(Gtk.Bin):
     def __init__(self):
-        GObject.Object.__init__(self)
+        super().__init__()
 
-    def update_display_on_left(self):
+
+class MinimapView(Gtk.Box):
+    bin = None
+    map = None
+    sep = None
+
+    def __init__(self, view):
+        super().__init__(Gtk.Orientation.HORIZONTAL)
+        self.bin = Bin()
+        self.map = GtkSource.Map()
+        self.set_font_desc()
+        self.map.set_view(view)
+        self.map.show()
+        self.bin.show()
+
+        self.sep = Gtk.Separator()
+        self.pack_end(self.bin, False, True, 0)
+        self.pack_end(self.sep, False, True, 0)
+        self.pack_end(self.map, False, True, 0)
+
+        self.on_dir_changed()
+        self.on_separator_changed()
+
+    def on_dir_changed(self, *args):
+        global settings
         display_on_left = False
+
         if settings is not None:
             display_on_left = settings.get_boolean('display-on-left')
-
+        print(display_on_left)
         if display_on_left:
-            self.tab.set_direction(Gtk.TextDirection.LTR)
+            self.set_direction(Gtk.TextDirection.LTR)
         else:
-            self.tab.set_direction(Gtk.TextDirection.RTL)
+            self.set_direction(Gtk.TextDirection.RTL)
 
-    def on_display_on_left_changed(self, *args):
-        self.update_display_on_left()
-
-        # force the tab to redraw
-        self.tab.hide()
-        self.tab.show()
+        self.hide()
+        self.show()
 
     def on_separator_changed(self, *args):
+        global settings
         show_separator = True
         if settings is not None:
             show_separator = settings.get_boolean('show-separator')
-        if show_separator: self.sep.show()
-        else: self.sep.hide()
+        if show_separator:
+            self.sep.show()
+        else:
+            self.sep.hide()
 
     def set_font_desc(self):
-        if not self.source_map: return
+        if not self.map:
+            return
 
         default_font = 'Monospace 1'
         try:
@@ -83,47 +109,72 @@ class RestoreMinimapPlugin(GObject.Object, Gedit.ViewActivatable):
             if use_default_font:
                 desktop_schema = 'org.gnome.desktop.interface'
                 desktop_settings = Gio.Settings.new(desktop_schema)
-                default_font = desktop_settings.get_string('monospace-font-name')
+                default_font = desktop_settings.get_string(
+                    'monospace-font-name')
             else:
                 default_font = editor_settings.get_string('editor-font')
         except:
             pass
 
         desc = Pango.FontDescription(default_font)
-        desc.set_size(Pango.SCALE) # set size to 1pt
+        desc.set_size(Pango.SCALE)  # set size to 1pt
         desc.set_family('BuilderBlocks,' + desc.get_family())
-        self.source_map.set_property('font-desc', desc)
+        self.map.set_property('font-desc', desc)
+
+
+class RestoreMinimapPlugin(GObject.Object, Gedit.ViewActivatable):
+
+    view = GObject.property(type=Gedit.View)
+    scrolled = None
+    frame = None
+    minimap = None
+    settings_handlers = []
+
+    def __init__(self):
+        GObject.Object.__init__(self)
 
     def do_activate(self):
-        self.tab = self.view.get_parent().get_parent().get_parent()
-        self.tab.set_orientation(Gtk.Orientation.HORIZONTAL)
+        if not self.minimap:
+            self.minimap = MinimapView(self.view)
+        else:
+            return True
 
-        # hide vertical scrollbar
-        self.scrolled = self.view.get_parent()
-        self.scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.EXTERNAL)
+        if not self.scrolled:
+            self.scrolled = self.view.get_parent()
+        if not self.frame:
+            self.frame = self.scrolled.get_parent()
 
-        self.source_map = GtkSource.Map()
-        self.set_font_desc()
-        self.source_map.set_view(self.view)
-        self.source_map.show()
+        GObject.Object._ref(self.scrolled)
 
-        self.sep = Gtk.Separator()
-        self.tab.pack_end(self.sep, False, True, 0)
-        self.tab.pack_end(self.source_map, False, True, 0)
+        if self.scrolled.get_parent() == self.frame:
+            self.frame.remove(self.scrolled)
+            self.minimap.bin.add(self.scrolled)
+            self.frame.add(self.minimap)
+            GObject.Object._unref(self.scrolled)
 
-        self.update_display_on_left()
-        self.on_separator_changed()
         if settings is not None:
             self.settings_handlers = [
-                settings.connect('changed::display-on-left', self.on_display_on_left_changed),
-                settings.connect('changed::show-separator', self.on_separator_changed)
+                settings.connect('changed::display-on-left',
+                                 self.minimap.on_dir_changed),
+                settings.connect('changed::show-separator',
+                                 self.minimap.on_separator_changed)
             ]
 
     def do_deactivate(self):
-        self.tab.remove(self.source_map)
-        self.tab.remove(self.sep)
-        self.tab.set_orientation(Gtk.Orientation.VERTICAL)
-        self.scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        if self.scrolled.get_parent() == self.minimap.bin:
+
+            GObject.Object._ref(self.minimap)
+            GObject.Object._ref(self.scrolled)
+
+            self.minimap.bin.remove(self.scrolled)
+            self.frame.remove(self.minimap)
+            self.frame.add(self.scrolled)
+
+            GObject.Object._unref(self.minimap)
+            GObject.Object._unref(self.scrolled)
+            self.minimap.destroy()
+            self.minimap = None
+
         if settings is not None:
             for handler in self.settings_handlers:
                 settings.disconnect(handler)
