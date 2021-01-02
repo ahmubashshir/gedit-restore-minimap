@@ -54,20 +54,29 @@ class MinimapView(Gtk.Box):
     bin = None
     map = None
     sep = None
+    mapview = None
 
     def __init__(self, view):
         super().__init__(Gtk.Orientation.HORIZONTAL)
         self.bin = Bin()
         self.map = GtkSource.Map()
+        self.mapview = Gtk.Box(Gtk.Orientation.HORIZONTAL)
+
         self.set_font_desc()
         self.map.set_view(view)
-        self.map.show()
-        self.bin.show()
 
         self.sep = Gtk.Separator()
+
+        self.bin.show()
+        self.sep.show()
+        self.map.show()
+        self.mapview.show()
+
         self.pack_end(self.bin, False, True, 0)
-        self.pack_end(self.sep, False, True, 0)
-        self.pack_end(self.map, False, True, 0)
+        self.pack_end(self.mapview, False, True, 0)
+
+        self.mapview.pack_end(self.sep, False, True, 0)
+        self.mapview.pack_end(self.map, False, True, 0)
 
         self.on_dir_changed()
         self.on_separator_changed()
@@ -78,7 +87,7 @@ class MinimapView(Gtk.Box):
 
         if settings is not None:
             display_on_left = settings.get_boolean('display-on-left')
-        print(display_on_left)
+
         if display_on_left:
             self.set_direction(Gtk.TextDirection.LTR)
         else:
@@ -137,7 +146,7 @@ class RestoreMinimapPlugin(GObject.Object, Gedit.ViewActivatable):
         if not self.minimap:
             self.minimap = MinimapView(self.view)
         else:
-            return True
+            self.minimap.mapview.show()
 
         if not self.scrolled:
             self.scrolled = self.view.get_parent()
@@ -161,19 +170,8 @@ class RestoreMinimapPlugin(GObject.Object, Gedit.ViewActivatable):
             ]
 
     def do_deactivate(self):
-        if self.scrolled.get_parent() == self.minimap.bin:
-
-            GObject.Object._ref(self.minimap)
-            GObject.Object._ref(self.scrolled)
-
-            self.minimap.bin.remove(self.scrolled)
-            self.frame.remove(self.minimap)
-            self.frame.add(self.scrolled)
-
-            GObject.Object._unref(self.minimap)
-            GObject.Object._unref(self.scrolled)
-            self.minimap.destroy()
-            self.minimap = None
+        if self.minimap.bin:
+            self.minimap.mapview.hide()
 
         if settings is not None:
             for handler in self.settings_handlers:
