@@ -158,7 +158,10 @@ class RestoreMinimapPlugin(GObject.Object, Gedit.ViewActivatable):
         if self.scrolled.get_parent() == self.frame:
             self.frame.remove(self.scrolled)
             self.minimap.bin.add(self.scrolled)
-            self.frame.add(self.minimap)
+            if isinstance(self.frame, (Gtk.Grid,)):
+                self.frame.attach(self.minimap, 0, 0, 1, 1)
+            else:
+                self.frame.add(self.minimap)
             GObject.Object._unref(self.scrolled)
 
         if settings is not None:
